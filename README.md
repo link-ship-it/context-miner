@@ -1,0 +1,190 @@
+# ContextMiner
+
+Real-time screen context awareness daemon. Continuously captures screenshots, analyzes them with Gemini VLM, and builds a searchable activity history with daily reports and workflow pattern recognition.
+
+Designed to integrate with [OpenClaw](https://github.com/nicepkg/openclaw) as a skill, giving your AI assistant persistent awareness of what you're working on.
+
+## How It Works
+
+```
+Screenshot (10s) --> pHash Dedup --> Gemini VLM Analysis --> SQLite + ChromaDB
+                                                                  |
+                                             Timeline markdown (per-entry)
+                                             Activity summaries (every 15min)
+                                             Workflow patterns (every 1h)
+                                             Daily report (end of day)
+                                                                  |
+                                                   Push to OpenClaw instances
+                                                   FastAPI Query API (:18900)
+```
+
+1. **Capture**: Takes a screenshot of each monitor every 10 seconds
+2. **Dedup**: Skips near-identical frames using perceptual hashing (pHash)
+3. **Understand**: Sends unique screenshots to Gemini 3 Pro, which extracts the active application, what you're doing, key entities, and your likely intent
+4. **Store**: Saves structured data to SQLite (queries) and ChromaDB (semantic search)
+5. **Summarize**: Every 15 minutes generates an activity summary; every hour identifies recurring workflow patterns
+6. **Output**: Writes daily timeline and report files; exposes a REST API; optionally pushes insights to OpenClaw
+
+## Quick Start
+
+### Prerequisites
+
+- Python 3.11+
+- macOS Screen Recording permission (System Settings -> Privacy & Security -> Screen & Audio Recording)
+- A Gemini API key
+
+### Installation
+
+```bash
+git clone https://github.com/YOUR_USERNAME/context-miner.git
+cd context-miner
+
+python3.11 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+### Set API Key
+
+Choose one method:
+
+```bash
+# Option A: Environment variable
+export GEMINI_API_KEY="your-gemini-api-key"
+
+# Option B: .env file
+echo "GEMINI_API_KEY=your-gemini-api-key" > .env
+
+# Option C: Auto-load from an external project with scripts/fetch_config.sh
+export CONFIG_SCRIPT_DIR="/path/to/your-project"
+```
+
+### Run
+
+```bash
+# Foreground (see logs in terminal)
+./start.sh --foreground
+
+# Or directly via Python
+python -m context_miner.cli start --foreground
+
+# Background
+python -m context_miner.cli start
+
+# Check status / stop
+python -m context_miner.cli status
+python -m context_miner.cli stop
+```
+
+### macOS Auto-Start (launchd)
+
+```bash
+# Replace YOUR_USERNAME with your macOS username
+sed "s/YOUR_USERNAME/$(whoami)/g" com.context-miner.daemon.plist > ~/Library/LaunchAgents/com.context-miner.daemon.plist
+launchctl load ~/Library/LaunchAgents/com.context-miner.daemon.plist
+```
+
+## API Endpoints
+
+Once running, the API is available at `http://localhost:18900`:
+
+| Endpoint | Description |
+|---|---|
+| `GET /api/status` | Daemon status |
+| `GET /api/context/now` | What you're doing right now |
+| `GET /api/activity/recent?hours=N` | Activity summaries (default 24h) |
+| `GET /api/activity/daily` | Today's activity summaries |
+| `GET /api/search?q=...&n=10` | Semantic search across all activity |
+| `GET /api/workflow/patterns` | Identified workflow patterns |
+| `GET /api/todos` | Smart TODO suggestions |
+
+Example:
+```bash
+curl -s http://localhost:18900/api/context/now | python3 -m json.tool
+```
+
+## Output Files
+
+| Path | Content | Frequency |
+|---|---|---|
+| `~/.context-miner/screenshots/` | Raw screenshots (auto-cleaned after 7 days) | Every 10s |
+| `~/.context-miner/output/timeline/YYYY-MM-DD.md` | Chronological activity log | Appended per VLM result |
+| `~/.context-miner/output/daily/YYYY-MM-DD.md` | Daily report (accomplishments, patterns, priorities) | Once per day |
+| `~/.context-miner/data/app.db` | SQLite database | Continuous |
+| `~/.context-miner/data/chromadb/` | Vector store for semantic search | Continuous |
+
+## OpenClaw Integration
+
+ContextMiner is designed to work as an [OpenClaw](https://github.com/nicepkg/openclaw) skill. Copy the skill definition to your OpenClaw workspace:
+
+```bash
+# Default profile
+mkdir -p ~/.openclaw/workspace/skills/context-miner
+cp skills/SKILL.md ~/.openclaw/workspace/skills/context-miner/SKILL.md
+
+# Additional profiles
+mkdir -p ~/.openclaw-alpha/workspace/skills/context-miner
+cp skills/SKILL.md ~/.openclaw-alpha/workspace/skills/context-miner/SKILL.md
+```
+
+The skill enables your OpenClaw bot to:
+- Answer "what was I doing this morning?"
+- Generate daily/weekly summaries from your actual screen activity
+- Search your activity history by meaning ("find when I worked on the voice feature")
+- Maintain a three-tier memory system:
+  - **Tier 1**: Raw timeline + daily files (generated by ContextMiner)
+  - **Tier 2**: `context-observations.md` (bot extracts patterns daily)
+  - **Tier 3**: `MEMORY.md` (only confirmed, stable insights)
+
+## Configuration
+
+Edit `config.yaml`:
+
+```yaml
+capture:
+  interval: 10          # Seconds between screenshots
+  max_image_size: 1920  # Downscale threshold (pixels)
+  retention_days: 7     # Auto-cleanup old screenshots
+
+dedup:
+  hash_threshold: 7     # pHash diff <= 7 = duplicate (0-64 scale)
+
+vlm:
+  model: gemini-3-pro-preview
+  batch_size: 5         # Screenshots per VLM batch
+  batch_timeout: 30     # Max seconds before forcing batch
+
+generation:
+  activity:
+    interval: 900       # Activity summary every 15 minutes
+  workflow:
+    interval: 3600      # Workflow extraction every 1 hour
+
+push:
+  daily_report_time: "00:00"  # When to generate the daily report
+  openclaw_profiles: [default, alpha]
+
+api:
+  port: 18900
+```
+
+## Multi-Monitor Support
+
+ContextMiner captures each monitor independently. Each screen gets its own screenshot, its own pHash dedup, and its own VLM analysis. File names include a `_monN` suffix (e.g., `20260317_143000_mon0.png`, `20260317_143000_mon1.png`).
+
+## Resource Usage
+
+| Resource | Estimate | Notes |
+|---|---|---|
+| Gemini API | ~200-400 calls/day | Dedup filters 50-70%, then batched |
+| Disk | ~500MB-1GB/day | Screenshots (7-day auto-cleanup) |
+| Memory | ~200MB | Daemon + ChromaDB |
+| CPU | Low | Only pHash and HTTP calls |
+
+## Architecture
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed module breakdown and data flow.
+
+## License
+
+MIT

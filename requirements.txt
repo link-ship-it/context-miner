@@ -1,0 +1,8 @@
+mss
+Pillow
+imagehash
+google-genai
+chromadb
+fastapi
+uvicorn
+pyyaml

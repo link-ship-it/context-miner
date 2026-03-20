@@ -1,0 +1,46 @@
+capture:
+  enabled: true
+  interval: 10
+  screenshot_dir: ~/.context-miner/screenshots
+  screenshot_format: png
+  max_image_size: 1920
+  retention_days: 7
+
+dedup:
+  enabled: true
+  hash_threshold: 7
+
+vlm:
+  model: gemini-3-pro-preview
+  batch_size: 5
+  batch_timeout: 30
+
+storage:
+  data_dir: ~/.context-miner/data
+  sqlite_db: app.db
+  chromadb_dir: chromadb
+
+generation:
+  activity:
+    enabled: true
+    interval: 900
+  workflow:
+    enabled: true
+    interval: 3600
+
+push:
+  enabled: true
+  daily_report_time: "00:00"
+  openclaw_profiles:
+    - default
+    - alpha
+
+output:
+  enabled: true
+  dir: ~/.context-miner/output
+  timeline_dir: timeline
+  daily_dir: daily
+
+api:
+  host: 127.0.0.1
+  port: 18900
