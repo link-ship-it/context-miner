@@ -5,13 +5,14 @@ import logging
 import os
 import uuid
 
-import httpx
 from google import genai
 from PIL import Image
 
 from context_miner.prompts import SCREENSHOT_ANALYZE_SYSTEM, SCREENSHOT_ANALYZE_USER
 
 logger = logging.getLogger("context_miner.vlm")
+
+API_TIMEOUT = 60
 
 
 class VLMProcessor:
@@ -22,43 +23,33 @@ class VLMProcessor:
             raise RuntimeError("GEMINI_API_KEY environment variable is required")
         self._client = genai.Client(
             api_key=api_key,
-            http_options={"timeout": 60},
+            http_options={"timeout": API_TIMEOUT},
         )
 
-    async def process_batch(self, screenshots: list[dict]) -> list[dict]:
-        """Process a batch of screenshot metadata dicts through VLM.
-
-        Each screenshot dict has: path, timestamp, hash, width, height.
-        Returns list of extracted context dicts.
-        """
+    def process_batch(self, screenshots: list[dict]) -> list[dict]:
         results = []
         for shot in screenshots:
             try:
-                ctx = await self._analyze_single(shot)
+                ctx = self._analyze_single(shot)
                 if ctx:
                     results.append(ctx)
             except Exception:
                 logger.exception("Failed to analyze screenshot: %s", shot.get("path"))
         return results
 
-    async def _analyze_single(self, shot: dict) -> dict | None:
+    def _analyze_single(self, shot: dict) -> dict | None:
         img_path = shot["path"]
         if not os.path.exists(img_path):
             logger.warning("Screenshot file not found: %s", img_path)
             return None
 
         img = Image.open(img_path)
-
         user_prompt = SCREENSHOT_ANALYZE_USER.format(timestamp=shot["timestamp"])
 
         try:
             response = self._client.models.generate_content(
                 model=self._model,
-                contents=[
-                    SCREENSHOT_ANALYZE_SYSTEM,
-                    img,
-                    user_prompt,
-                ],
+                contents=[SCREENSHOT_ANALYZE_SYSTEM, img, user_prompt],
             )
         except Exception:
             logger.exception("Gemini API call failed for %s", img_path)

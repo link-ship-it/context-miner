@@ -12,6 +12,8 @@ from context_miner.prompts import WORKFLOW_EXTRACT_SYSTEM, WORKFLOW_EXTRACT_USER
 
 logger = logging.getLogger("context_miner.workflow")
 
+API_TIMEOUT = 60
+
 
 class WorkflowExtractor:
     def __init__(self, cfg: dict, storage):
@@ -22,11 +24,10 @@ class WorkflowExtractor:
             raise RuntimeError("GEMINI_API_KEY environment variable is required")
         self._client = genai.Client(
             api_key=api_key,
-            http_options={"timeout": 60},
+            http_options={"timeout": API_TIMEOUT},
         )
 
-    async def extract(self) -> list[dict] | None:
-        """Analyze recent activities to identify or update workflow patterns."""
+    def extract(self) -> list[dict] | None:
         activities = self._storage.get_recent_activities(hours=24)
         if len(activities) < 3:
             logger.debug("Not enough activities for workflow extraction (%d)", len(activities))
@@ -104,7 +105,6 @@ class WorkflowExtractor:
         return results if results else None
 
     def _find_existing(self, new_pattern: dict, existing: list[dict]) -> dict | None:
-        """Fuzzy-match a new pattern against existing ones by name similarity."""
         new_name = (new_pattern.get("name") or "").lower()
         for e in existing:
             old_name = (e.get("name") or "").lower()

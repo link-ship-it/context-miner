@@ -1,6 +1,5 @@
 """Push notifications to OpenClaw instances."""
 
-import asyncio
 import json
 import logging
 import os
@@ -12,6 +11,8 @@ from google import genai
 from context_miner.prompts import DAILY_REPORT_SYSTEM, DAILY_REPORT_USER
 
 logger = logging.getLogger("context_miner.push")
+
+API_TIMEOUT = 60
 
 
 class PushService:
@@ -26,13 +27,12 @@ class PushService:
         if api_key:
             self._client = genai.Client(
                 api_key=api_key,
-                http_options={"timeout": 60},
+                http_options={"timeout": API_TIMEOUT},
             )
         else:
             self._client = None
 
     def _send_to_openclaw(self, message: str, profile: str = "default"):
-        """Send a message to an OpenClaw instance via CLI."""
         try:
             nvm_dir = os.environ.get("NVM_DIR", os.path.expanduser("~/.nvm"))
             cmd = (
@@ -51,8 +51,7 @@ class PushService:
         except Exception:
             logger.exception("Failed to push to OpenClaw (profile=%s)", profile)
 
-    async def push_activity(self, activity: dict):
-        """Push notable activity insights to OpenClaw."""
+    def push_activity(self, activity: dict):
         if not self._enabled:
             return
 
@@ -73,8 +72,7 @@ class PushService:
         for profile in self._profiles:
             self._send_to_openclaw(message, profile)
 
-    async def push_workflow_insight(self, patterns: list[dict]):
-        """Push new workflow pattern discoveries."""
+    def push_workflow_insight(self, patterns: list[dict]):
         if not self._enabled or not patterns:
             return
 
@@ -91,8 +89,7 @@ class PushService:
         for profile in self._profiles:
             self._send_to_openclaw(message, profile)
 
-    async def maybe_send_daily_report(self, storage):
-        """Check if it's time for the daily report and send it."""
+    def maybe_send_daily_report(self, storage):
         if not self._enabled or not self._client:
             return
 

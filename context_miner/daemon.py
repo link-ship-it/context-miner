@@ -1,13 +1,10 @@
 """Main daemon process — orchestrates capture, VLM, generation, and API server."""
 
-import asyncio
 import logging
 import os
 import signal
-import sys
 import threading
 import time
-from pathlib import Path
 
 import yaml
 
@@ -45,7 +42,7 @@ def _remove_pid():
         pass
 
 
-async def _run_loop(cfg: dict):
+def _run_loop(cfg: dict):
     from context_miner.capture import ScreenCapture
     from context_miner.vlm_processor import VLMProcessor
     from context_miner.storage import StorageLayer
@@ -63,15 +60,14 @@ async def _run_loop(cfg: dict):
     writer = MarkdownWriter(cfg)
     push_svc = PushService(cfg, writer=writer)
 
-    shutdown = asyncio.Event()
+    shutdown = threading.Event()
 
-    def _handle_signal():
+    def _handle_signal(signum, frame):
         logger.info("Shutdown signal received")
         shutdown.set()
 
-    loop = asyncio.get_event_loop()
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        loop.add_signal_handler(sig, _handle_signal)
+    signal.signal(signal.SIGTERM, _handle_signal)
+    signal.signal(signal.SIGINT, _handle_signal)
 
     api_thread = threading.Thread(
         target=start_api_server,
@@ -113,7 +109,7 @@ async def _run_loop(cfg: dict):
                 batch = pending_screenshots[:vlm_batch_size]
                 pending_screenshots = pending_screenshots[vlm_batch_size:]
                 try:
-                    contexts = await vlm.process_batch(batch)
+                    contexts = vlm.process_batch(batch)
                     for ctx in contexts:
                         try:
                             storage.save_context(ctx)
@@ -131,10 +127,10 @@ async def _run_loop(cfg: dict):
             now = time.time()
             if cfg["generation"]["activity"]["enabled"] and now - last_activity_time >= activity_interval:
                 try:
-                    activity = await activity_gen.generate()
+                    activity = activity_gen.generate()
                     if activity:
                         storage.save_activity(activity)
-                        await push_svc.push_activity(activity)
+                        push_svc.push_activity(activity)
                         logger.info("Activity generated: %s", activity.get("title"))
                 except Exception:
                     logger.exception("Activity generation failed")
@@ -142,28 +138,25 @@ async def _run_loop(cfg: dict):
 
             if cfg["generation"]["workflow"]["enabled"] and now - last_workflow_time >= workflow_interval:
                 try:
-                    patterns = await workflow_ext.extract()
+                    patterns = workflow_ext.extract()
                     if patterns:
                         for p in patterns:
                             storage.save_workflow(p)
-                        await push_svc.push_workflow_insight(patterns)
+                        push_svc.push_workflow_insight(patterns)
                         logger.info("Workflow patterns extracted: %d", len(patterns))
                 except Exception:
                     logger.exception("Workflow extraction failed")
                 last_workflow_time = now
 
             try:
-                await push_svc.maybe_send_daily_report(storage)
+                push_svc.maybe_send_daily_report(storage)
             except Exception:
                 logger.exception("Daily report push failed")
 
         except Exception:
             logger.exception("Unhandled error in daemon loop")
 
-        try:
-            await asyncio.wait_for(shutdown.wait(), timeout=capture_interval)
-        except asyncio.TimeoutError:
-            pass
+        shutdown.wait(timeout=capture_interval)
 
     logger.info("Daemon loop exiting")
 
@@ -187,7 +180,7 @@ def run_daemon(config_path: str, foreground: bool = False):
     logger.info("ContextMiner daemon starting (PID %d)", os.getpid())
 
     try:
-        asyncio.run(_run_loop(cfg))
+        _run_loop(cfg)
     except KeyboardInterrupt:
         logger.info("Keyboard interrupt")
     finally:

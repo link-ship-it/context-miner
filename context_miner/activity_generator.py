@@ -12,6 +12,8 @@ from context_miner.prompts import ACTIVITY_SUMMARY_SYSTEM, ACTIVITY_SUMMARY_USER
 
 logger = logging.getLogger("context_miner.activity")
 
+API_TIMEOUT = 60
+
 
 class ActivityGenerator:
     def __init__(self, cfg: dict, storage):
@@ -23,15 +25,14 @@ class ActivityGenerator:
             raise RuntimeError("GEMINI_API_KEY environment variable is required")
         self._client = genai.Client(
             api_key=api_key,
-            http_options={"timeout": 60},
+            http_options={"timeout": API_TIMEOUT},
         )
 
-    async def generate(self) -> dict | None:
-        """Generate an activity summary for the most recent interval."""
+    def generate(self) -> dict | None:
         window_minutes = self._interval // 60
         contexts = self._storage.get_recent_contexts(minutes=window_minutes)
         if not contexts:
-            logger.debug("No contexts in the last %d minutes, skipping activity generation", window_minutes)
+            logger.debug("No contexts in the last %d minutes, skipping", window_minutes)
             return None
 
         now = datetime.now()
