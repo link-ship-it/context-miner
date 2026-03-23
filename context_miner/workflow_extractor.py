@@ -20,7 +20,10 @@ class WorkflowExtractor:
         api_key = os.environ.get("GEMINI_API_KEY")
         if not api_key:
             raise RuntimeError("GEMINI_API_KEY environment variable is required")
-        self._client = genai.Client(api_key=api_key)
+        self._client = genai.Client(
+            api_key=api_key,
+            http_options={"timeout": 60},
+        )
 
     async def extract(self) -> list[dict] | None:
         """Analyze recent activities to identify or update workflow patterns."""

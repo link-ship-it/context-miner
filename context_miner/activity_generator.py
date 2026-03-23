@@ -21,7 +21,10 @@ class ActivityGenerator:
         api_key = os.environ.get("GEMINI_API_KEY")
         if not api_key:
             raise RuntimeError("GEMINI_API_KEY environment variable is required")
-        self._client = genai.Client(api_key=api_key)
+        self._client = genai.Client(
+            api_key=api_key,
+            http_options={"timeout": 60},
+        )
 
     async def generate(self) -> dict | None:
         """Generate an activity summary for the most recent interval."""

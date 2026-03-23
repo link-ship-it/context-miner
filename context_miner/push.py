@@ -24,7 +24,10 @@ class PushService:
         self._writer = writer
         api_key = os.environ.get("GEMINI_API_KEY")
         if api_key:
-            self._client = genai.Client(api_key=api_key)
+            self._client = genai.Client(
+                api_key=api_key,
+                http_options={"timeout": 60},
+            )
         else:
             self._client = None
 
