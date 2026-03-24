@@ -1,12 +1,10 @@
-"""Screenshot capture with pHash deduplication."""
+"""Screenshot capture — captures each monitor independently."""
 
 import logging
 import os
-import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
-import imagehash
 import mss
 from PIL import Image
 
@@ -19,17 +17,11 @@ class ScreenCapture:
         self._format = cfg["capture"].get("screenshot_format", "png")
         self._max_size = cfg["capture"].get("max_image_size", 1920)
         self._retention_days = cfg["capture"].get("retention_days", 7)
-        self._dedup_enabled = cfg["dedup"].get("enabled", True)
-        self._hash_threshold = cfg["dedup"].get("hash_threshold", 7)
-        self._last_hashes: dict[int, imagehash.ImageHash] = {}
         self._sct = mss.mss()
         os.makedirs(self._screenshot_dir, exist_ok=True)
 
     def take_screenshots(self) -> list[dict]:
-        """Capture each monitor separately, deduplicate individually.
-
-        Returns a list of metadata dicts for new (non-duplicate) screenshots.
-        """
+        """Capture each monitor separately. Returns list of metadata dicts."""
         results = []
         real_monitors = self._sct.monitors[1:]
         if not real_monitors:
@@ -48,11 +40,6 @@ class ScreenCapture:
 
         return results
 
-    def take_screenshot(self) -> dict | None:
-        """Backward-compatible single-result method. Returns first new capture or None."""
-        results = self.take_screenshots()
-        return results[0] if results else None
-
     def _capture_monitor(self, idx: int, monitor: dict) -> dict | None:
         raw = self._sct.grab(monitor)
         img = Image.frombytes("RGB", raw.size, raw.bgra, "raw", "BGRX")
@@ -62,14 +49,6 @@ class ScreenCapture:
             new_size = (int(img.width * ratio), int(img.height * ratio))
             img = img.resize(new_size, Image.LANCZOS)
 
-        current_hash = imagehash.phash(img)
-        if self._dedup_enabled and idx in self._last_hashes:
-            diff = current_hash - self._last_hashes[idx]
-            if diff <= self._hash_threshold:
-                logger.debug("Monitor %d deduplicated (hash diff=%d)", idx, diff)
-                return None
-
-        self._last_hashes[idx] = current_hash
         ts = datetime.now()
         suffix = f"_mon{idx}" if len(self._sct.monitors) > 2 else ""
         filename = ts.strftime("%Y%m%d_%H%M%S") + suffix + f".{self._format}"
@@ -79,7 +58,6 @@ class ScreenCapture:
         return {
             "path": filepath,
             "timestamp": ts.isoformat(),
-            "hash": str(current_hash),
             "width": img.width,
             "height": img.height,
             "monitor": idx,

@@ -1,14 +1,10 @@
 capture:
   enabled: true
-  interval: 10
+  interval: 5
   screenshot_dir: ~/.context-miner/screenshots
   screenshot_format: png
   max_image_size: 1920
   retention_days: 7
-
-dedup:
-  enabled: true
-  hash_threshold: 7
 
 vlm:
   model: gemini-3-pro-preview
