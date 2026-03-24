@@ -1,30 +1,22 @@
-"""Gemini 3 Pro VLM processing — extract structured context from screenshots."""
+"""Gemini VLM processing — extract structured context from screenshots."""
 
 import json
 import logging
 import os
 import uuid
 
-from google import genai
 from PIL import Image
 
+from context_miner.gemini_client import GeminiClient
 from context_miner.prompts import SCREENSHOT_ANALYZE_SYSTEM, SCREENSHOT_ANALYZE_USER
 
 logger = logging.getLogger("context_miner.vlm")
 
-API_TIMEOUT = 60
-
 
 class VLMProcessor:
     def __init__(self, cfg: dict):
-        self._model = cfg["vlm"].get("model", "gemini-3-pro-preview")
-        api_key = os.environ.get("GEMINI_API_KEY")
-        if not api_key:
-            raise RuntimeError("GEMINI_API_KEY environment variable is required")
-        self._client = genai.Client(
-            api_key=api_key,
-            http_options={"timeout": API_TIMEOUT},
-        )
+        model = cfg["vlm"].get("model", "gemini-3-pro-preview")
+        self._client = GeminiClient(model=model)
 
     def process_batch(self, screenshots: list[dict]) -> list[dict]:
         results = []
@@ -44,18 +36,14 @@ class VLMProcessor:
             return None
 
         img = Image.open(img_path)
-        user_prompt = SCREENSHOT_ANALYZE_USER.format(timestamp=shot["timestamp"])
+        prompt = SCREENSHOT_ANALYZE_SYSTEM + "\n\n" + SCREENSHOT_ANALYZE_USER.format(
+            timestamp=shot["timestamp"]
+        )
 
-        try:
-            response = self._client.models.generate_content(
-                model=self._model,
-                contents=[SCREENSHOT_ANALYZE_SYSTEM, img, user_prompt],
-            )
-        except Exception:
-            logger.exception("Gemini API call failed for %s", img_path)
+        raw_text = self._client.generate(prompt, image=img)
+        if not raw_text:
             return None
 
-        raw_text = response.text.strip()
         if raw_text.startswith("```"):
             raw_text = raw_text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
 

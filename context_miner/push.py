@@ -6,13 +6,10 @@ import os
 import subprocess
 from datetime import datetime
 
-from google import genai
-
+from context_miner.gemini_client import GeminiClient
 from context_miner.prompts import DAILY_REPORT_SYSTEM, DAILY_REPORT_USER
 
 logger = logging.getLogger("context_miner.push")
-
-API_TIMEOUT = 60
 
 
 class PushService:
@@ -20,16 +17,12 @@ class PushService:
         self._enabled = cfg["push"].get("enabled", True)
         self._profiles = cfg["push"].get("openclaw_profiles", ["default"])
         self._daily_report_time = cfg["push"].get("daily_report_time", "20:00")
-        self._model = cfg["vlm"].get("model", "gemini-3-pro-preview")
         self._last_daily_report_date: str | None = None
         self._writer = writer
-        api_key = os.environ.get("GEMINI_API_KEY")
-        if api_key:
-            self._client = genai.Client(
-                api_key=api_key,
-                http_options={"timeout": API_TIMEOUT},
-            )
-        else:
+        try:
+            model = cfg["vlm"].get("model", "gemini-3-pro-preview")
+            self._client = GeminiClient(model=model)
+        except Exception:
             self._client = None
 
     def _send_to_openclaw(self, message: str, profile: str = "default"):
@@ -120,20 +113,14 @@ class PushService:
             for p in patterns[:5]
         ) or "None identified yet."
 
-        user_prompt = DAILY_REPORT_USER.format(
+        prompt = DAILY_REPORT_SYSTEM + "\n\n" + DAILY_REPORT_USER.format(
             date=today_str,
             activities=activities_text,
             patterns=patterns_text,
         )
 
-        try:
-            response = self._client.models.generate_content(
-                model=self._model,
-                contents=[DAILY_REPORT_SYSTEM, user_prompt],
-            )
-            report = response.text.strip()
-        except Exception:
-            logger.exception("Failed to generate daily report")
+        report = self._client.generate(prompt)
+        if not report:
             return
 
         if self._writer:

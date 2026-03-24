@@ -175,6 +175,7 @@ def run_daemon(config_path: str, foreground: bool = False):
             *([] if not foreground else [logging.StreamHandler()]),
         ],
     )
+    logging.getLogger("httpx").setLevel(logging.WARNING)
 
     _write_pid()
     logger.info("ContextMiner daemon starting (PID %d)", os.getpid())

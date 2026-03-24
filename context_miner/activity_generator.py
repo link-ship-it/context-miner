@@ -2,31 +2,21 @@
 
 import json
 import logging
-import os
 import uuid
 from datetime import datetime, timedelta
 
-from google import genai
-
+from context_miner.gemini_client import GeminiClient
 from context_miner.prompts import ACTIVITY_SUMMARY_SYSTEM, ACTIVITY_SUMMARY_USER
 
 logger = logging.getLogger("context_miner.activity")
-
-API_TIMEOUT = 60
 
 
 class ActivityGenerator:
     def __init__(self, cfg: dict, storage):
         self._storage = storage
         self._interval = cfg["generation"]["activity"]["interval"]
-        self._model = cfg["vlm"].get("model", "gemini-3-pro-preview")
-        api_key = os.environ.get("GEMINI_API_KEY")
-        if not api_key:
-            raise RuntimeError("GEMINI_API_KEY environment variable is required")
-        self._client = genai.Client(
-            api_key=api_key,
-            http_options={"timeout": API_TIMEOUT},
-        )
+        model = cfg["vlm"].get("model", "gemini-3-pro-preview")
+        self._client = GeminiClient(model=model)
 
     def generate(self) -> dict | None:
         window_minutes = self._interval // 60
@@ -48,23 +38,17 @@ class ActivityGenerator:
                 f"(intent: {c.get('intent', '?')}, entities: {', '.join(entities)})"
             )
 
-        user_prompt = ACTIVITY_SUMMARY_USER.format(
+        prompt = ACTIVITY_SUMMARY_SYSTEM + "\n\n" + ACTIVITY_SUMMARY_USER.format(
             start_time=start.isoformat(),
             end_time=now.isoformat(),
             current_time=now.isoformat(),
             context_data="\n".join(context_lines),
         )
 
-        try:
-            response = self._client.models.generate_content(
-                model=self._model,
-                contents=[ACTIVITY_SUMMARY_SYSTEM, user_prompt],
-            )
-        except Exception:
-            logger.exception("Gemini activity summary call failed")
+        raw = self._client.generate(prompt)
+        if not raw:
             return None
 
-        raw = response.text.strip()
         if raw.startswith("```"):
             raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
 

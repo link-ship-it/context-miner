@@ -2,30 +2,20 @@
 
 import json
 import logging
-import os
 import uuid
 from datetime import datetime, timedelta
 
-from google import genai
-
+from context_miner.gemini_client import GeminiClient
 from context_miner.prompts import WORKFLOW_EXTRACT_SYSTEM, WORKFLOW_EXTRACT_USER
 
 logger = logging.getLogger("context_miner.workflow")
-
-API_TIMEOUT = 60
 
 
 class WorkflowExtractor:
     def __init__(self, cfg: dict, storage):
         self._storage = storage
-        self._model = cfg["vlm"].get("model", "gemini-3-pro-preview")
-        api_key = os.environ.get("GEMINI_API_KEY")
-        if not api_key:
-            raise RuntimeError("GEMINI_API_KEY environment variable is required")
-        self._client = genai.Client(
-            api_key=api_key,
-            http_options={"timeout": API_TIMEOUT},
-        )
+        model = cfg["vlm"].get("model", "gemini-3-pro-preview")
+        self._client = GeminiClient(model=model)
 
     def extract(self) -> list[dict] | None:
         activities = self._storage.get_recent_activities(hours=24)
@@ -50,23 +40,17 @@ class WorkflowExtractor:
             for w in existing
         )
 
-        user_prompt = WORKFLOW_EXTRACT_USER.format(
+        prompt = WORKFLOW_EXTRACT_SYSTEM + "\n\n" + WORKFLOW_EXTRACT_USER.format(
             start_time=start.isoformat(),
             end_time=now.isoformat(),
             activities_data=activities_text,
             existing_patterns=existing_text,
         )
 
-        try:
-            response = self._client.models.generate_content(
-                model=self._model,
-                contents=[WORKFLOW_EXTRACT_SYSTEM, user_prompt],
-            )
-        except Exception:
-            logger.exception("Gemini workflow extraction call failed")
+        raw = self._client.generate(prompt)
+        if not raw:
             return None
 
-        raw = response.text.strip()
         if raw.startswith("```"):
             raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
 
